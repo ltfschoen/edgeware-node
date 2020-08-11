@@ -76,6 +76,8 @@ pallet-transaction-payment = { git = "https://github.com/hicommonwealth/substrat
 pallet-transaction-payment-rpc-runtime-api = { git = "https://github.com/hicommonwealth/substrate.git", default-features = false }
 pallet-vesting = { git = "https://github.com/hicommonwealth/substrate.git", default-features = false }
 
+frontier-rpc-primitives = { default-features = false, git = "https://github.com/paritytech/frontier.git" }
+pallet-ethereum = { package = "pallet-ethereum", default-features = false, git = "https://github.com/paritytech/frontier.git" }
 
 signaling = { package = "edge-signaling", path = "../../modules/edge-signaling", default-features = false }
 treasury-reward = { package = "edge-treasury-reward", path = "../../modules/edge-treasury-reward", default-features = false }
@@ -104,7 +106,6 @@ std = [
 	"pallet-contracts/std",
 	"pallet-democracy/std",
 	"pallet-elections-phragmen/std",
-	"pallet-evm/std",
 	"frame-executive/std",
 	"pallet-finality-tracker/std",
 	"pallet-grandpa/std",
@@ -147,4 +148,7 @@ std = [
 	"signaling/std",
 	"treasury-reward/std",
 	"voting/std",
+	"pallet-evm/std",
+	"pallet-ethereum/std",
+	"frontier-rpc-primitives/std",
 ]
