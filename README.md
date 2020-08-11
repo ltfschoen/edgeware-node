@@ -26,6 +26,7 @@ If your device is clean (such as a fresh cloud VM) you can use this
 script for an automated setup:
 
 ```
+git submodule update --init --recursive
 ./setup.sh
 ```
 
@@ -53,6 +54,11 @@ rustup update stable
 rustup update nightly
 rustup target add wasm32-unknown-unknown --toolchain nightly
 cargo install --git https://github.com/alexcrichton/wasm-gc
+```
+
+Initialize Submodules
+```
+git submodule update --init --recursive
 ```
 
 Build Edgeware:
