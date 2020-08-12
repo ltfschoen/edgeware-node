@@ -180,7 +180,7 @@ impl frame_system::Trait for Runtime {
 	type Version = Version;
 	type ModuleToIndex = ModuleToIndex;
 	type AccountData = pallet_balances::AccountData<Balance>;
-	type MigrateAccount = (Balances, Identity, Democracy, Elections, ImOnline, Recovery, Staking, Session, Vesting);
+	// type MigrateAccount = (Balances, Identity, Democracy, Elections, ImOnline, Recovery, Staking, Session, Vesting);
 	type OnNewAccount = ();
 	type OnKilledAccount = ();
 }
@@ -847,11 +847,11 @@ impl frontier_rpc_primitives::ConvertTransaction<UncheckedExtrinsic> for Transac
 	}
 }
 
-impl frontier_rpc_primitives::ConvertTransaction<opaque::UncheckedExtrinsic> for TransactionConverter {
-	fn convert_transaction(&self, transaction: pallet_ethereum::Transaction) -> opaque::UncheckedExtrinsic {
+impl frontier_rpc_primitives::ConvertTransaction<UncheckedExtrinsic> for TransactionConverter {
+	fn convert_transaction(&self, transaction: pallet_ethereum::Transaction) -> UncheckedExtrinsic {
 		let extrinsic = UncheckedExtrinsic::new_unsigned(pallet_ethereum::Call::<Runtime>::transact(transaction).into());
 		let encoded = extrinsic.encode();
-		opaque::UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Encoded extrinsic is always valid")
+		UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Encoded extrinsic is always valid")
 	}
 }
 
