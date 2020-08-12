@@ -70,8 +70,8 @@ pub use pallet_session::{historical as pallet_session_historical};
 
 // Ethereum config
 use pallet_ethereum::{Block as EthereumBlock, Transaction as EthereumTransaction, Receipt as EthereumReceipt};
-use pallet_evm::{Account as EVMAccount, FeeCalculator, HashedAddressMapping, EnsureAddressTruncated};
-use frontier_rpc_primitives::{TransactionStatus};
+use pallet_evm::{Account as EVMAccount, ConvertAccountId, FeeCalculator, HashTruncateConvertAccountId};
+use frontier_rpc_primitives::TransactionStatus;
 
 pub use sp_inherents::{CheckInherentsResult, InherentData};
 use static_assertions::const_assert;
@@ -672,7 +672,7 @@ impl pallet_grandpa::Trait for Runtime {
 	type Event = Event;
 	type Call = Call;
 
-	type KeyOwnerProofSystem = Historical;
+	type KeyOwnerProofSystem = (Historical);
 
 	type KeyOwnerProof =
 		<Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
@@ -682,8 +682,7 @@ impl pallet_grandpa::Trait for Runtime {
 		GrandpaId,
 	)>>::IdentificationTuple;
 
-	type HandleEquivocation =
-		pallet_grandpa::EquivocationHandler<Self::KeyOwnerIdentification, Offences>;
+	type HandleEquivocation = ();
 }
 
 parameter_types! {
@@ -768,14 +767,14 @@ parameter_types! {
 }
 
 impl pallet_evm::Trait for Runtime {
+	type ModuleId = EVMModuleId;
 	type FeeCalculator = FixedGasPrice;
-	type CallOrigin = EnsureAddressTruncated;
-	type WithdrawOrigin = EnsureAddressTruncated;
-	type AddressMapping = HashedAddressMapping<BlakeTwo256>;
+	type ConvertAccountId = HashTruncateConvertAccountId<BlakeTwo256>;
 	type Currency = Balances;
 	type Event = Event;
-	type Precompiles = ();
-	type ChainId = ChainId;
+	type Precompiles = (); // We can use () here because paint_evm provides an
+					   // `impl Precompiles for ()``
+					   // block that always returns none (line 75)
 }
 
 impl signaling::Trait for Runtime {
@@ -847,13 +846,15 @@ impl frontier_rpc_primitives::ConvertTransaction<UncheckedExtrinsic> for Transac
 	}
 }
 
-impl frontier_rpc_primitives::ConvertTransaction<UncheckedExtrinsic> for TransactionConverter {
-	fn convert_transaction(&self, transaction: pallet_ethereum::Transaction) -> UncheckedExtrinsic {
+/*
+impl frontier_rpc_primitives::ConvertTransaction<opaque::UncheckedExtrinsic> for TransactionConverter {
+	fn convert_transaction(&self, transaction: pallet_ethereum::Transaction) -> opaque::UncheckedExtrinsic {
 		let extrinsic = UncheckedExtrinsic::new_unsigned(pallet_ethereum::Call::<Runtime>::transact(transaction).into());
 		let encoded = extrinsic.encode();
-		UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Encoded extrinsic is always valid")
+		opaque::UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Encoded extrinsic is always valid")
 	}
 }
+*/
 
 /// The address format for describing accounts.
 pub type Address = <Indices as StaticLookup>::Source;
@@ -1000,41 +1001,6 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl pallet_contracts_rpc_runtime_api::ContractsApi<Block, AccountId, Balance, BlockNumber>
-		for Runtime
-	{
-		fn call(
-			origin: AccountId,
-			dest: AccountId,
-			value: Balance,
-			gas_limit: u64,
-			input_data: Vec<u8>,
-		) -> ContractExecResult {
-			let exec_result =
-				Contracts::bare_call(origin, dest.into(), value, gas_limit, input_data);
-			match exec_result {
-				Ok(v) => ContractExecResult::Success {
-					status: v.status,
-					data: v.data,
-				},
-				Err(_) => ContractExecResult::Error,
-			}
-		}
-
-		fn get_storage(
-			address: AccountId,
-			key: [u8; 32],
-		) -> pallet_contracts_primitives::GetStorageResult {
-			Contracts::get_storage(address, key)
-		}
-
-		fn rent_projection(
-			address: AccountId,
-		) -> pallet_contracts_primitives::RentProjectionResult<BlockNumber> {
-			Contracts::rent_projection(address)
-		}
-	}
-
 	impl pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<
 		Block,
 		Balance,
@@ -1063,7 +1029,7 @@ impl_runtime_apis! {
 		}
 
 		fn account_basic(address: H160) -> EVMAccount {
-			evm::Module::<Runtime>::account_basic(&address)
+			pallet_evm::Module::<Runtime>::account_basic(&address)
 		}
 
 		fn gas_price() -> U256 {
@@ -1071,51 +1037,45 @@ impl_runtime_apis! {
 		}
 
 		fn account_code_at(address: H160) -> Vec<u8> {
-			evm::Module::<Runtime>::account_codes(address)
+			pallet_evm::Module::<Runtime>::account_codes(address)
 		}
 
 		fn author() -> H160 {
-			<pallet_ethereum::Module<Runtime>>::find_author()
+			let digest = <frame_system::Module<Runtime>>::digest();
+			let pre_runtime_digests = digest.logs.iter().filter_map(|d| d.as_pre_runtime());
+			if let Some(index) = <pallet_aura::Module<Runtime>>::find_author(pre_runtime_digests) {
+				let authority_id = &<pallet_aura::Module<Runtime>>::authorities()[index as usize];
+				<pallet_evm::HashTruncateConvertAccountId<BlakeTwo256>>::convert_account_id(&authority_id)
+			} else {
+				H160::zero()
+			}
 		}
 
 		fn storage_at(address: H160, index: U256) -> H256 {
 			let mut tmp = [0u8; 32];
 			index.to_big_endian(&mut tmp);
-			evm::Module::<Runtime>::account_storages(address, H256::from_slice(&tmp[..]))
+			pallet_evm::Module::<Runtime>::account_storages(address, H256::from_slice(&tmp[..]))
 		}
 
 		fn call(
 			from: H160,
+			to: H160,
 			data: Vec<u8>,
 			value: U256,
 			gas_limit: U256,
 			gas_price: U256,
 			nonce: Option<U256>,
-			action: pallet_ethereum::TransactionAction,
 		) -> Option<(Vec<u8>, U256)> {
-			match action {
-				pallet_ethereum::TransactionAction::Call(to) =>
-					evm::Module::<Runtime>::execute_call(
-						from,
-						to,
-						data,
-						value,
-						gas_limit.low_u32(),
-						gas_price,
-						nonce,
-						false,
-					).ok().map(|(_, ret, gas)| (ret, gas)),
-				pallet_ethereum::TransactionAction::Create =>
-					evm::Module::<Runtime>::execute_create(
-						from,
-						data,
-						value,
-						gas_limit.low_u32(),
-						gas_price,
-						nonce,
-						false,
-					).ok().map(|(_, _, gas)| (vec![], gas)),
-			}
+			pallet_evm::Module::<Runtime>::execute_call(
+				from,
+				to,
+				data,
+				value,
+				gas_limit.low_u32(),
+				gas_price,
+				nonce,
+				false,
+			).ok().map(|(_, ret, gas)| (ret, gas))
 		}
 
 		fn block_by_number(number: u32) -> (
@@ -1166,7 +1126,7 @@ impl_runtime_apis! {
 			EthereumTransaction,
 			EthereumBlock,
 			TransactionStatus,
-			Vec<EthereumReceipt>)> {
+			EthereumReceipt)> {
 			<pallet_ethereum::Module<Runtime>>::transaction_by_hash(hash)
 		}
 
@@ -1185,36 +1145,6 @@ impl_runtime_apis! {
 				number,
 				index
 			)
-		}
-
-		fn logs(
-			from_block: Option<u32>,
-			to_block: Option<u32>,
-			block_hash: Option<H256>,
-			address: Option<H160>,
-			topic: Option<Vec<H256>>
-		) -> Vec<(
-			H160, // address
-			Vec<H256>, // topics
-			Vec<u8>, // data
-			Option<H256>, // block_hash
-			Option<U256>, // block_number
-			Option<H256>, // transaction_hash
-			Option<U256>, // transaction_index
-			Option<U256>, // log index in block
-			Option<U256>, // log index in transaction
-		)> {
-			let output = <pallet_ethereum::Module<Runtime>>::filtered_logs(
-				from_block,
-				to_block,
-				block_hash,
-				address,
-				topic
-			);
-			if let Some(output) = output {
-				return output;
-			}
-			return vec![];
 		}
 	}
 }
