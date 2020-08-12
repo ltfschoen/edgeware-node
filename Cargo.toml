@@ -18,4 +18,4 @@ panic = "unwind"
 
 
 [patch.crates-io]
-ethereum = { path = "vendor/ethereum" }
+ethereum = { version = "0.2", path = "vendor/ethereum" }
